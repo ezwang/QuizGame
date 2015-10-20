@@ -12,13 +12,27 @@ import android.view.MenuItem;
 import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import com.firebase.client.DataSnapshot;
 import com.firebase.client.Firebase;
 import com.firebase.client.FirebaseError;
 import com.firebase.client.ValueEventListener;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.Reader;
+import java.io.StringWriter;
+import java.io.UnsupportedEncodingException;
+import java.io.Writer;
 import java.text.DecimalFormat;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Timer;
 import java.util.TimerTask;
@@ -50,6 +64,39 @@ public class QuizActivity extends AppCompatActivity {
 
     Drawable originalButtonTexture;
 
+    private String loadLocalJSON(int id) throws UnsupportedEncodingException, IOException {
+        InputStream is = getResources().openRawResource(id);
+        Writer writer = new StringWriter();
+        char[] buffer = new char[1024];
+        try {
+            Reader reader = new BufferedReader(new InputStreamReader(is, "UTF-8"));
+            int n;
+            while ((n = reader.read(buffer)) != -1) {
+                writer.write(buffer, 0, n);
+            }
+        } finally {
+            is.close();
+        }
+
+        return writer.toString();
+    }
+
+    class Question {
+        String question;
+        int answer;
+        String[] choices;
+
+        public Question(String q, String a, String b, String c, String d, int ans) {
+            question = q;
+            choices = new String[] { a, b, c, d };
+            answer = ans;
+        }
+    }
+
+    ArrayList<Question> questionList = new ArrayList<Question>();
+
+    Firebase db;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -60,9 +107,41 @@ public class QuizActivity extends AppCompatActivity {
 
         Firebase.setAndroidContext(this);
 
-        final Firebase db = new Firebase("https://glowing-fire-9880.firebaseio.com/sharednotes");
+        db = new Firebase("https://glowing-fire-9880.firebaseio.com/sharednotes");
 
         final Activity m = this;
+
+        try {
+            JSONArray json = new JSONArray(loadLocalJSON(R.raw.questions));
+            for (int i = 0; i < json.length(); i++) {
+                JSONObject qObj = json.getJSONObject(i);
+                String question = qObj.getString("question");
+                String answer = qObj.getString("answer");
+                int ansindex = -1;
+                if (answer.equals("A"))
+                    ansindex = 0;
+                if (answer.equals("B"))
+                    ansindex = 1;
+                if (answer.equals("C"))
+                    ansindex = 2;
+                if (answer.equals("D"))
+                    ansindex = 3;
+                if (question == null || question.isEmpty()) {
+                    Log.w("QuizGame", "Question is null or empty! (#" + (i + 1) + ")");
+                }
+                else if (ansindex == -1) {
+                    Log.w("QuizGame", "Could not find correct answer choice: " + answer);
+                }
+                else {
+                    questionList.add(new Question(question, qObj.getString("A"), qObj.getString("B"), qObj.getString("C"), qObj.getString("D"), ansindex));
+                }
+            }
+        }
+        catch (Exception ex) {
+            Log.e("QuizGame", "Error loading JSON", ex);
+        }
+
+        Collections.shuffle(questionList);
 
         originalButtonTexture = this.findViewById(R.id.button).getBackground();
 
@@ -77,6 +156,7 @@ public class QuizActivity extends AppCompatActivity {
                         // load game
                         gameScore = 0;
                         loadQuestion();
+                        updateScore();
                         state = GameState.PLAYING;
                         gameTimer = new Timer();
                         gameTime = 60;
@@ -88,13 +168,20 @@ public class QuizActivity extends AppCompatActivity {
                                     public void run() {
                                         TextView t = (TextView) m.findViewById(R.id.txtTime);
                                         t.setText(timeFormat.format(gameTime / 60) + ":" + timeFormat.format(gameTime % 60));
+                                        if (gameTime <= 10) {
+                                            t.setTextColor(Color.RED);
+                                        }
                                     }
                                 });
                                 if (gameTime <= 0) {
                                     gameTimer.cancel();
+                                    state = GameState.ANIMATION;
                                     handler.post(new Runnable() {
                                         @Override
                                         public void run() {
+                                            state = GameState.ANIMATION;
+                                            ((TextView) m.findViewById(R.id.txtTime)).setTextColor(Color.BLACK);
+                                            setButtonColor(Color.BLUE);
                                             if (gameScore > maxScore) {
                                                 maxScore = gameScore;
                                                 updateScore();
@@ -105,7 +192,18 @@ public class QuizActivity extends AppCompatActivity {
                                             resetMenu();
                                         }
                                     });
-                                    state = GameState.MENU;
+                                    new Timer().schedule(new TimerTask() {
+                                        @Override
+                                        public void run() {
+                                            handler.post(new Runnable() {
+                                                @Override
+                                                public void run() {
+                                                    setButtonColor(-1);
+                                                    state = GameState.MENU;
+                                                }
+                                            });
+                                        }
+                                    }, 3000);
                                     return;
                                 }
                                 gameTime--;
@@ -114,21 +212,31 @@ public class QuizActivity extends AppCompatActivity {
                     } else if (state == GameState.PLAYING) {
                         state = GameState.ANIMATION;
                         // player pressed answer
+                        if (answerID == -1) {
+                            Log.w("QuizGame", "User pressed button before answer loaded!");
+                            return;
+                        }
                         TextView qTxt = (TextView)m.findViewById(R.id.txtQuestion);
+                        boolean right = false;
                         if (v.getId() == answerID) {
                             qTxt.setText("Correct!");
                             gameScore += 1;
                             updateScore();
                             v.setBackgroundColor(Color.GREEN);
+                            right = true;
                         } else {
                             qTxt.setText("Wrong!");
                             v.setBackgroundColor(Color.RED);
                             Button correct = (Button)m.findViewById(answerID);
                             correct.setBackgroundColor(Color.GREEN);
                         }
+                        answerID = -1;
                         new Timer().schedule(new TimerTask() {
                             @Override
                             public void run() {
+                                if (gameTime <= 0) {
+                                    return;
+                                }
                                 handler.post(new Runnable() {
                                     @Override
                                     public void run() {
@@ -138,7 +246,7 @@ public class QuizActivity extends AppCompatActivity {
                                 });
                                state = GameState.PLAYING;
                             }
-                        }, 1000);
+                        }, (right ? 500 : 1000));
                     }
                 }
             });
@@ -197,13 +305,14 @@ public class QuizActivity extends AppCompatActivity {
     }
 
     void loadQuestion() {
+        Question ques = questionList.remove(0);
         TextView qTxt = (TextView)this.findViewById(R.id.txtQuestion);
-        qTxt.setText("This is a sample question!");
+        qTxt.setText(ques.question);
         for (int i = 0; i < btns.length; i++) {
             Button b = (Button)this.findViewById(btns[i]);
-            b.setText("Answer");
+            b.setText(ques.choices[i]);
         }
-        answerID = btns[(int)(Math.random() * btns.length)];
+        answerID = btns[ques.answer];
     }
 
     @Override
@@ -220,8 +329,13 @@ public class QuizActivity extends AppCompatActivity {
         // as you specify a parent activity in AndroidManifest.xml.
         int id = item.getItemId();
 
-        //noinspection SimplifiableIfStatement
-        if (id == R.id.action_settings) {
+        if (id == R.id.reset_settings) {
+            maxScore = 0;
+            updateScore();
+            if (!is_guest) {
+                db.child("users").child(username).child("highscore").setValue(maxScore);
+            }
+            Toast.makeText(QuizActivity.this, "High score reset!", Toast.LENGTH_SHORT).show();
             return true;
         }
 
