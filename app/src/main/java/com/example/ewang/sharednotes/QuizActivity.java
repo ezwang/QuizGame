@@ -1,6 +1,7 @@
 package com.example.ewang.sharednotes;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
@@ -336,6 +337,10 @@ public class QuizActivity extends AppCompatActivity {
                 db.child("users").child(username).child("highscore").setValue(maxScore);
             }
             Toast.makeText(QuizActivity.this, "High score reset!", Toast.LENGTH_SHORT).show();
+            return true;
+        }
+        else if (id == R.id.about_settings) {
+            new AlertDialog.Builder(QuizActivity.this).setTitle("About Quiz Game").setMessage("This app was created by Eric Wang.").setPositiveButton("OK", null).setIcon(R.drawable.icon).show();
             return true;
         }
 

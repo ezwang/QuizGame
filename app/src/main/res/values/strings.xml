@@ -2,7 +2,6 @@
     <string name="app_name">Quiz Game</string>
     <string name="action_settings">Settings</string>
     <string name="reset_settings">Reset Score</string>
+    <string name="about_settings">About App</string>
     <string name="title_activity_quiz">Quiz Game</string>
-
-    <string name="hello_world">Hello world!</string>
 </resources>
